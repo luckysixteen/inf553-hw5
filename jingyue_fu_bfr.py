@@ -4,6 +4,7 @@ import numpy as np
 import os, sys
 import time
 from operator import add
+from collections import Counter
 
 timeStart = time.time()
 
@@ -29,7 +30,6 @@ def getRS(arr):
         if v == 1:
             result[k] = v
     return result
-
 
 # -------- Initiate --------
 # Step 1. Load 20% of the data randomly.
@@ -91,7 +91,7 @@ for k in init_key:
 ds_CEN = initKmeans.cluster_centers_
 ds_SUM = ds_CEN * ds_N
 ds_SUMSQ = np.array(ds_SUMSQ)
-ds_SV = np.power((ds_SUMSQ / ds_N) - np.power(ds_CEN,2), 0.5) * 2
+ds_SV = np.power((ds_SUMSQ / ds_N) - np.power(ds_CEN,2), 0.5)
 s5End = time.time()
 print("step5: %f sec" % (s5End - s5Start))
 
@@ -100,7 +100,6 @@ s6Start = time.time()
 temp_cluster = int(retained_set_inx.size * 0.7)
 initKmeans = KMeans(n_clusters=temp_cluster, random_state=0).fit(retained_set)
 print("outliner number: " + str(len(getRS(initKmeans.labels_))))
-
 init_key = np.unique(initKmeans.labels_)
 compression_set_inx = list()
 inxList = list()
@@ -120,23 +119,68 @@ for k in init_key:
 cs_CEN = np.array(cs_CEN)
 cs_SUM = cs_CEN * cs_N
 cs_SUMSQ = np.array(cs_SUMSQ)
-cs_SV = np.power((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2), 0.5) * 2
+cs_SV = np.power((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2), 0.5)
 retained_set = np.delete(retained_set, inxList, axis=0)
 retained_set_inx = np.delete(retained_set_inx, inxList)
 s6End = time.time()
 print("step6: %f sec" % (s6End - s6Start))
 
 intermediate_res.append((ds_count, len(compression_set_inx), cs_count, retained_set_inx.size))
-print (intermediate_res)
+
 
 # -------- Computation Loop --------
 # Step 7. Load another 20% of the data randomly.
 start = int(n_data * percentage)
 end = start + int(n_data * percentage)
 while start < n_data:
+    if end > n_data:
+        end = n_data
+    data = np.array(allData[start:end])
+    data_len = end - start + 1
+    data_inx = np.arange(start+1, end+1)
     # Step 8. For the new points, compare them to each of the DS using the Mahalanobis Distance and assign them to the nearest DS clusters if the distance is < 2√𝑑.
-    # Step 9. For the new points that are not assigned to DS clusters, using the Mahalanobis Distance and assign the points to the nearest CS clusters if the distance is < 2√𝑑
-    # Step 10. For the new points that are not assigned to a DS cluster or a CS cluster, assign them to RS.
+    ds_temp = [[] for i in range(10)]
+    cs_temp = [[] for i in range(len(compression_set_inx))]
+    for i in range(data_len-1):
+        ds_times = np.abs(ds_CEN - data[i]) / ds_SV
+        ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
+        ds_times = ds_times[ds_min_line]
+        if np.argwhere(ds_times >= 2).size == 0:
+            discard_set[start + i] = ds_min_line
+            ds_temp[ds_min_line].append(data[i])
+        else:
+            # Step 9. For the new points that are not assigned to DS clusters, using the Mahalanobis Distance and assign the points to the nearest CS clusters if the distance is < 2√𝑑
+            cs_times = np.abs(cs_CEN - data[i]) / cs_SV
+            cs_min_line = np.argmax(np.bincount(cs_times.argmin(axis=0)))
+            cs_times = cs_times[cs_min_line]
+            if np.argwhere(cs_times >= 2).size == 0:
+                cs_temp[cs_min_line].append(data[i])
+                compression_set_inx[cs_min_line].append(start + i + 1)
+            else:
+                # Step 10. For the new points that are not assigned to a DS cluster or a CS cluster, assign them to RS.
+                retained_set = np.r_[retained_set,np.array([data[i]])]
+                retained_set_inx = np.append(retained_set_inx, start + i + 1)
+    # update ds & cs N, SUM, SUMSQ
+    for i in range(10):
+        temp = np.array(ds_temp[i])
+        ds_SUM[i] += np.sum(temp, axis=0)
+        ds_SUMSQ[i] += np.sum(np.power(temp, 2), axis=0)
+    ds_N_temp = [[len(i)] for i in ds_temp]
+    ds_N += ds_N_temp
+    ds_CEN = ds_SUM / ds_N
+    print (ds_SUM.shape, ds_SUMSQ.shape, ds_CEN.shape)
+    ds_SV = np.power((ds_SUMSQ / ds_N) - np.power(ds_CEN, 2), 0.5)
+    for i in range(len(compression_set_inx)):
+        temp = np.array(cs_temp[i])
+        cs_SUM[i] += np.sum(temp, axis=0)
+        cs_SUMSQ[i] += np.sum(np.power(temp, 2), axis=0)
+    cs_N_temp = [[len(i)] for i in cs_temp]
+    cs_N += cs_N_temp
+    cs_CEN = cs_SUM / cs_N
+    cs_SV = np.power((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2), 0.5)
+
+
+
     # Step 11. Run K-Means on the RS with a large K to generate CS (clusters with more than one points) and RS (clusters with only one point).
     # Step 12. Merge CS clusters that have a Mahalanobis Distance < 2√𝑑.
     start = end
