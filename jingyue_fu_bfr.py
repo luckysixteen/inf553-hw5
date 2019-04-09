@@ -88,10 +88,11 @@ for k in init_key:
     ds_SUMSQ.append(np.sum(np.power(init_data[inx], 2), axis=0))
     ground_inx = init_data_inx[inx] - 1
     discard_set[ground_inx] = k
+ds_N = np.array(ds_N)
 ds_CEN = initKmeans.cluster_centers_
 ds_SUM = ds_CEN * ds_N
 ds_SUMSQ = np.array(ds_SUMSQ)
-ds_SV = np.power((ds_SUMSQ / ds_N) - np.power(ds_CEN,2), 0.5)
+ds_SV = np.sqrt((ds_SUMSQ / ds_N) - np.power(ds_CEN,2))
 s5End = time.time()
 print("step5: %f sec" % (s5End - s5Start))
 
@@ -116,10 +117,11 @@ for k in init_key:
         cs_SUMSQ.append(np.sum(np.power(retained_set[inx], 2), axis=0))
         cs_CEN.append(initKmeans.cluster_centers_[k])
         inxList += inx
+cs_N = np.array(cs_N)
 cs_CEN = np.array(cs_CEN)
 cs_SUM = cs_CEN * cs_N
 cs_SUMSQ = np.array(cs_SUMSQ)
-cs_SV = np.power((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2), 0.5)
+cs_SV = np.sqrt((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
 retained_set = np.delete(retained_set, inxList, axis=0)
 retained_set_inx = np.delete(retained_set_inx, inxList)
 s6End = time.time()
@@ -165,19 +167,18 @@ while start < n_data:
         temp = np.array(ds_temp[i])
         ds_SUM[i] += np.sum(temp, axis=0)
         ds_SUMSQ[i] += np.sum(np.power(temp, 2), axis=0)
-    ds_N_temp = [[len(i)] for i in ds_temp]
+    ds_N_temp = np.array([[len(i)] for i in ds_temp])
     ds_N += ds_N_temp
     ds_CEN = ds_SUM / ds_N
-    print (ds_SUM.shape, ds_SUMSQ.shape, ds_CEN.shape)
-    ds_SV = np.power((ds_SUMSQ / ds_N) - np.power(ds_CEN, 2), 0.5)
+    ds_SV = np.sqrt((ds_SUMSQ / ds_N) - np.power(ds_CEN, 2))
     for i in range(len(compression_set_inx)):
         temp = np.array(cs_temp[i])
         cs_SUM[i] += np.sum(temp, axis=0)
         cs_SUMSQ[i] += np.sum(np.power(temp, 2), axis=0)
-    cs_N_temp = [[len(i)] for i in cs_temp]
+    cs_N_temp = np.array([[len(i)] for i in cs_temp])
     cs_N += cs_N_temp
     cs_CEN = cs_SUM / cs_N
-    cs_SV = np.power((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2), 0.5)
+    cs_SV = np.sqrt((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
 
 
 
