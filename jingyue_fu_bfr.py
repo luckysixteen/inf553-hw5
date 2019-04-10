@@ -35,7 +35,7 @@ def getRS(arr):
 # -------- Initiate --------
 # Step 1. Load 20% of the data randomly.
 n_data = len(allData)
-percentage = 0.02
+percentage = 0.2
 big_cluster = N_CLUSTER * 10
 print(int(n_data * percentage))
 init_data = np.array(allData[:int(n_data * percentage)])
@@ -43,10 +43,10 @@ init_data_inx = np.arange(int(n_data * percentage))
 
 # Step 2. Run K-Means (e.g., from sklearn) with a large K (e.g., 10 times of the given cluster numbers) on the data in memory using the Euclidean distance as the similarity measurement.
 s2Start = time.time()
-filKmeans = KMeans(n_clusters=big_cluster * 8, random_state=0).fit(init_data)
+filKmeans = KMeans(n_clusters=big_cluster, random_state=0).fit(init_data)
 print("outliner number: " + str(len(getRS(filKmeans.labels_))))
 s2End = time.time()
-print("percentage: "+str(percentage)+", cluster: "+str(big_cluster*8))
+print("percentage: "+str(percentage)+", cluster: "+str(big_cluster))
 print("step2: %f sec" % (s2End - s2Start))
 
 # Step 3. In the K-Means result from Step 2, move all the clusters with only one point to RS (outliers).
@@ -133,6 +133,7 @@ intermediate_res.append((ds_count, len(compression_set_inx), cs_count, retained_
 
 # -------- Computation Loop --------
 # Step 7. Load another 20% of the data randomly.
+percentage = 0.05
 start = int(n_data * percentage)
 end = start + int(n_data * percentage)
 while start < n_data:
@@ -159,7 +160,7 @@ while start < n_data:
             # print (len(cs_temp), cs_min_line)
             if np.argwhere(cs_times > 2).size == 0:
                 cs_temp[cs_min_line].append(data[i])
-                compression_set_inx[cs_min_line].append(start + i + 1)
+                compression_set_inx[cs_min_line].append(start + i)
                 cs_count += 1
             else:
                 # Step 10. For the new points that are not assigned to a DS cluster or a CS cluster, assign them to RS.
@@ -226,7 +227,7 @@ while start < n_data:
             SUM_temp = cs_SUM[i] + cs_SUM[j]
             SUMSQ_temp = cs_SUMSQ[i] + cs_SUMSQ[j]
             SV_temp = np.sqrt((SUMSQ_temp / N_temp) - np.power((SUM_temp / N_temp), 2))
-            if np.argwhere(SV_temp > 9).size == 0:
+            if np.argwhere(SV_temp > 5).size == 0:
                 merge_list.append([i,j])
     merge_len = len(merge_list)
     if merge_len != 0:
@@ -296,9 +297,9 @@ outputStr = "The intermediate results:\n"
 for i in range(len(intermediate_res)):
     r = intermediate_res[i]
     outputStr = outputStr + "Round " + str(i+1) + ": " + str(r[0]) + "," + str(r[1]) + "," + str(r[2]) + "," + str(r[3]) + "\n"
-outputStr += "The clustering results:\n"
+outputStr += "\nThe clustering results:\n"
 for i in range(len(discard_set)):
-    r = str(i) + "," + str(discard_set[i]) + "\n"
+    r = str(i) + "," + str(int(discard_set[i])) + "\n"
     outputStr += r
 fileOfOutput.write(outputStr)
 fileOfOutput.close()
