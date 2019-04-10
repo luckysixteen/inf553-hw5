@@ -5,6 +5,7 @@ import os, sys
 import time
 from operator import add
 from collections import Counter
+from sklearn.metrics.cluster import normalized_mutual_info_score
 
 timeStart = time.time()
 
@@ -38,7 +39,7 @@ percentage = 0.02
 big_cluster = N_CLUSTER * 10
 print(int(n_data * percentage))
 init_data = np.array(allData[:int(n_data * percentage)])
-init_data_inx = np.arange(1, int(n_data * percentage)+1)
+init_data_inx = np.arange(int(n_data * percentage))
 
 # Step 2. Run K-Means (e.g., from sklearn) with a large K (e.g., 10 times of the given cluster numbers) on the data in memory using the Euclidean distance as the similarity measurement.
 s2Start = time.time()
@@ -64,7 +65,7 @@ for k in init_key:
 init_data = np.delete(init_data, retained_set_inx, axis=0)
 init_data_inx = np.delete(init_data_inx, retained_set_inx)
 retained_set = np.array(retained_set)
-retained_set_inx = np.array([i+1 for i in retained_set_inx])
+retained_set_inx = np.array([i for i in retained_set_inx])
 s3End = time.time()
 print("step3: %f sec" % (s3End - s3Start))
 
@@ -138,12 +139,11 @@ while start < n_data:
     if end > n_data:
         end = n_data
     data = np.array(allData[start:end])
-    data_len = end - start + 1
-    data_inx = np.arange(start+1, end+1)
+    data_len = end - start
     # Step 8. For the new points, compare them to each of the DS using the Mahalanobis Distance and assign them to the nearest DS clusters if the distance is < 2√𝑑.
     ds_temp = [[] for i in range(10)]
     cs_temp = [[] for i in range(len(compression_set_inx))]
-    for i in range(data_len-1):
+    for i in range(data_len):
         ds_times = np.abs(ds_CEN - data[i]) / ds_SV
         ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
         ds_times = ds_times[ds_min_line]
@@ -156,6 +156,7 @@ while start < n_data:
             cs_times = np.abs(cs_CEN - data[i]) / cs_SV
             cs_min_line = np.argmax(np.bincount(cs_times.argmin(axis=0)))
             cs_times = cs_times[cs_min_line]
+            # print (len(cs_temp), cs_min_line)
             if np.argwhere(cs_times > 2).size == 0:
                 cs_temp[cs_min_line].append(data[i])
                 compression_set_inx[cs_min_line].append(start + i + 1)
@@ -163,7 +164,7 @@ while start < n_data:
             else:
                 # Step 10. For the new points that are not assigned to a DS cluster or a CS cluster, assign them to RS.
                 retained_set = np.r_[retained_set,np.array([data[i]])]
-                retained_set_inx = np.append(retained_set_inx, start + i + 1)
+                retained_set_inx = np.append(retained_set_inx, start + i)
     # update ds & cs N, SUM, SUMSQ
     for i in range(10):
         temp = np.array(ds_temp[i])
@@ -186,7 +187,6 @@ while start < n_data:
     if retained_set_inx.size != 0:
         temp_cluster = min(int(retained_set_inx.size * 0.7), N_CLUSTER * 10)
         retainedKmeans = KMeans(n_clusters=temp_cluster, random_state=0).fit(retained_set)
-        print("outliner number: " + str(len(getRS(retainedKmeans.labels_))))
         init_key = np.unique(retainedKmeans.labels_)
         inxList = list()
         for k in init_key:
@@ -196,76 +196,112 @@ while start < n_data:
                 compression_set_inx.append(retained_set_inx[inx].tolist())
                 cs_N = np.r_[cs_N, np.array([[len(inx)]])]
                 sq_temp = np.array([np.sum(np.power(retained_set[inx], 2), axis=0)])
-                cen_temp = np.array([retainedKmeans.cluster_centers_[k]])
+                # cen_temp = np.array([retainedKmeans.cluster_centers_[k]])
+                sum_temp = np.array([np.sum(retained_set[inx], axis=0)])
+                cen_temp = np.array(sum_temp/len(inx))
+                sv_temp = (sq_temp / len(inx)) - np.power(cen_temp, 2)
+                if np.argwhere(sv_temp < 0).size > 0:
+                    print (np.sum(retained_set[inx], axis=0)/len(inx))
+                    print (cen_temp)
                 cs_SUMSQ = np.r_[cs_SUMSQ, sq_temp]
                 cs_CEN = np.r_[cs_CEN, cen_temp]
-                cs_SUM = np.r_[cs_SUM, cen_temp * len(inx)]
-                cs_SV = np.r_[cs_SV, np.sqrt((sq_temp / len(inx)) - np.power(cen_temp, 2))]
+                cs_SUM = np.r_[cs_SUM, sum_temp]
+                cs_SV = np.r_[cs_SV, np.sqrt(sv_temp)]
+
                 inxList += inx
         retained_set = np.delete(retained_set, inxList, axis=0)
         retained_set_inx = np.delete(retained_set_inx, inxList)
 
     # Step 12. Merge CS clusters that have a Mahalanobis Distance < 2√𝑑.
     merge_list = list()
-    for i in range(len(compression_set_inx)):
+    # for i in range(len(compression_set_inx)):
+    #     for j in range(i+1, len(compression_set_inx)):
+    #         dis_times_1 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[i]
+    #         dis_times_2 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[j]
+    #         if np.argwhere(dis_times_1 > 2).size == 0 and np.argwhere(dis_times_2 > 2).size == 0:
+    #             merge_list.append([i,j])
+    for i in range(len(compression_set_inx)-1):
         for j in range(i+1, len(compression_set_inx)):
-            dis_times_1 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[i]
-            dis_times_2 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[j]
-            if np.argwhere(dis_times_1 > 2).size == 0 and np.argwhere(dis_times_2 > 2).size == 0:
+            N_temp = cs_N[i] + cs_N[j]
+            SUM_temp = cs_SUM[i] + cs_SUM[j]
+            SUMSQ_temp = cs_SUMSQ[i] + cs_SUMSQ[j]
+            SV_temp = np.sqrt((SUMSQ_temp / N_temp) - np.power((SUM_temp / N_temp), 2))
+            if np.argwhere(SV_temp > 9).size == 0:
                 merge_list.append([i,j])
     merge_len = len(merge_list)
-    for i in range(merge_len):
-        for j in range(merge_len):
-            x = list(set(merge_list[i]+merge_list[j]))
-            y = len(merge_list[j])+len(merge_list[i])
-            if i == j:
-                continue
-            elif len(x) < y:
-                merge_list[i] = x
-                merge_list[j] = [-1]
-    merge_list = [i for i in merge_list if i != [-1]]
-
-
-    for m in merge_list:
-        inx_temp = list()
-        for i in m:
-            inx_temp += compression_set_inx[i]
-        compression_set_inx.append(inx_temp)
-        cs_N = np.r_[cs_N, np.array([[len(inx_temp)]])]
-        sq_temp = np.array([np.sum(cs_SUMSQ[m], axis=0)])
-        sum_temp = np.array([np.sum(cs_SUM[m], axis=0)])
-        cs_SUMSQ = np.r_[cs_SUMSQ, sq_temp]
-        cs_SUM = np.r_[cs_SUM, sum_temp]
-        cs_CEN = np.r_[cs_CEN, sum_temp / len(inx_temp)]
-        cs_SV = np.r_[cs_SV, np.sqrt((sq_temp / len(inx)) - np.power(sum_temp / len(inx_temp), 2))]
-    delete_line = sorted(sum(merge_list, []),key=int,reverse = True)
-    for l in delete_line:
-        del compression_set_inx[l]
-    cs_N = np.delete(cs_N, delete_line, axis=0)
-    cs_SUM = np.delete(cs_SUM, delete_line, axis=0)
-    cs_SUMSQ = np.delete(cs_SUMSQ, delete_line, axis=0)
-    cs_CEN = np.delete(cs_CEN, delete_line, axis=0)
-    cs_SV = np.delete(cs_SV, delete_line, axis=0)
+    if merge_len != 0:
+        for i in range(merge_len):
+            for j in range(merge_len):
+                x = list(set(merge_list[i]+merge_list[j]))
+                y = len(merge_list[j])+len(merge_list[i])
+                if i == j:
+                    break
+                elif len(x) < y:
+                    merge_list[i] = x
+                    merge_list[j] = [-1]
+        merge_list = [i for i in merge_list if i != [-1]]
+        for m in merge_list:
+            inx_temp = list()
+            for i in m:
+                inx_temp += compression_set_inx[i]
+            compression_set_inx.append(inx_temp)
+            cs_N = np.r_[cs_N, np.array([[len(inx_temp)]])]
+            sq_temp = np.array([np.sum(cs_SUMSQ[m], axis=0)])
+            sum_temp = np.array([np.sum(cs_SUM[m], axis=0)])
+            # print (np.array([[len(inx_temp)]]).shape, sum_temp.shape, sq_temp.shape)
+            # print (cs_N.shape, cs_SUM.shape, cs_SUMSQ.shape)
+            cs_SUMSQ = np.r_[cs_SUMSQ, sq_temp]
+            cs_SUM = np.r_[cs_SUM, sum_temp]
+            cs_CEN = np.r_[cs_CEN, sum_temp / len(inx_temp)]
+            cs_SV = np.r_[cs_SV, np.sqrt((sq_temp / len(inx_temp)) - np.power(sum_temp / len(inx_temp), 2))]
+        delete_line = sorted(sum(merge_list, []),key=int,reverse = True)
+        for l in delete_line:
+            del compression_set_inx[l]
+        cs_N = np.delete(cs_N, delete_line, axis=0)
+        cs_SUM = np.delete(cs_SUM, delete_line, axis=0)
+        cs_SUMSQ = np.delete(cs_SUMSQ, delete_line, axis=0)
+        cs_CEN = np.delete(cs_CEN, delete_line, axis=0)
+        cs_SV = np.delete(cs_SV, delete_line, axis=0)
 
     # If this is the last run (after the last chunk of data), merge CS clusters with DS clusters that have a Mahalanobis Distance < 2√𝑑.
-    if end != n_data:
-        start = end
-        end = start + int(n_data * percentage) 
-    # else:
-    #     for i in compression_set_inx:
-    #         # Assign cs to ds
-    #         print (i)
+    if end == n_data:
+        delete_line = list()
+        for i in range(len(compression_set_inx)):
+            ds_times = np.abs(ds_CEN - cs_CEN[i]) / ds_SV
+            ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
+            ds_times = ds_times[ds_min_line]
+            if np.argwhere(ds_times > 2).size == 0:
+                inx = compression_set_inx[i]
+                discard_set[inx] = ds_min_line
+                ds_count += len(compression_set_inx[i])
+                cs_count -= len(compression_set_inx[i])
+                delete_line.append(i)
+        delete_line = sorted(delete_line, key = int, reverse = True)
+        for l in delete_line:
+            del compression_set_inx[l]
 
+    start = end
+    end = start + int(n_data * percentage)
     metadata = (ds_count, len(compression_set_inx), cs_count, retained_set_inx.size)
     print (metadata)
     intermediate_res.append(metadata)
 # Test
-# testData = rawData.map(lambda x: (int(x[0]), int(x[1])))
+testData = rawData.map(lambda x: int(x[1])).collect()
+score = normalized_mutual_info_score(testData, discard_set)
+print (score)
 
 # Print
-# fileOfOutput = open(OUTPUT, 'w')
-# outputStr = ""
-# fileOfOutput.close()
+fileOfOutput = open(OUTPUT, 'w')
+outputStr = "The intermediate results:\n"
+for i in range(len(intermediate_res)):
+    r = intermediate_res[i]
+    outputStr = outputStr + "Round " + str(i+1) + ": " + str(r[0]) + "," + str(r[1]) + "," + str(r[2]) + "," + str(r[3]) + "\n"
+outputStr += "The clustering results:\n"
+for i in range(len(discard_set)):
+    r = str(i) + "," + str(discard_set[i]) + "\n"
+    outputStr += r
+fileOfOutput.write(outputStr)
+fileOfOutput.close()
 
 timeEnd = time.time()
 print("Duration: %f sec" % (timeEnd - timeStart))
