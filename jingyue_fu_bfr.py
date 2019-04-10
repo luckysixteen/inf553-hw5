@@ -148,12 +148,14 @@ while start < n_data:
         ds_times = np.abs(ds_CEN - data[i]) / ds_SV
         ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
         ds_times = ds_times[ds_min_line]
-        if np.argwhere(ds_times > 2).size == 0:
+        if np.argwhere(ds_times > 2.5).size == 0:
             discard_set[start + i] = ds_min_line
             ds_temp[ds_min_line].append(data[i])
             ds_count += 1
         else:
             # Step 9. For the new points that are not assigned to DS clusters, using the Mahalanobis Distance and assign the points to the nearest CS clusters if the distance is < 2√𝑑
+            if np.argwhere(cs_SV == 0).size >0:
+                print (cs_SV)
             cs_times = np.abs(cs_CEN - data[i]) / cs_SV
             cs_min_line = np.argmax(np.bincount(cs_times.argmin(axis=0)))
             cs_times = cs_times[cs_min_line]
