@@ -147,17 +147,19 @@ while start < n_data:
         ds_times = np.abs(ds_CEN - data[i]) / ds_SV
         ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
         ds_times = ds_times[ds_min_line]
-        if np.argwhere(ds_times >= 2).size == 0:
+        if np.argwhere(ds_times > 2).size == 0:
             discard_set[start + i] = ds_min_line
             ds_temp[ds_min_line].append(data[i])
+            ds_count += 1
         else:
             # Step 9. For the new points that are not assigned to DS clusters, using the Mahalanobis Distance and assign the points to the nearest CS clusters if the distance is < 2√𝑑
             cs_times = np.abs(cs_CEN - data[i]) / cs_SV
             cs_min_line = np.argmax(np.bincount(cs_times.argmin(axis=0)))
             cs_times = cs_times[cs_min_line]
-            if np.argwhere(cs_times >= 2).size == 0:
+            if np.argwhere(cs_times > 2).size == 0:
                 cs_temp[cs_min_line].append(data[i])
                 compression_set_inx[cs_min_line].append(start + i + 1)
+                cs_count += 1
             else:
                 # Step 10. For the new points that are not assigned to a DS cluster or a CS cluster, assign them to RS.
                 retained_set = np.r_[retained_set,np.array([data[i]])]
@@ -180,15 +182,83 @@ while start < n_data:
     cs_CEN = cs_SUM / cs_N
     cs_SV = np.sqrt((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
 
-
-
     # Step 11. Run K-Means on the RS with a large K to generate CS (clusters with more than one points) and RS (clusters with only one point).
-    # Step 12. Merge CS clusters that have a Mahalanobis Distance < 2√𝑑.
-    start = end
-    end = start + int(n_data * percentage)
-    # if end >= n_data:
-    # assign CS to DS
+    if retained_set_inx.size != 0:
+        temp_cluster = min(int(retained_set_inx.size * 0.7), N_CLUSTER * 10)
+        retainedKmeans = KMeans(n_clusters=temp_cluster, random_state=0).fit(retained_set)
+        print("outliner number: " + str(len(getRS(retainedKmeans.labels_))))
+        init_key = np.unique(retainedKmeans.labels_)
+        inxList = list()
+        for k in init_key:
+            inx = np.argwhere(retainedKmeans.labels_ == k).flatten().tolist()
+            if len(inx) > 1:
+                cs_count += len(inx)
+                compression_set_inx.append(retained_set_inx[inx].tolist())
+                cs_N = np.r_[cs_N, np.array([[len(inx)]])]
+                sq_temp = np.array([np.sum(np.power(retained_set[inx], 2), axis=0)])
+                cen_temp = np.array([retainedKmeans.cluster_centers_[k]])
+                cs_SUMSQ = np.r_[cs_SUMSQ, sq_temp]
+                cs_CEN = np.r_[cs_CEN, cen_temp]
+                cs_SUM = np.r_[cs_SUM, cen_temp * len(inx)]
+                cs_SV = np.r_[cs_SV, np.sqrt((sq_temp / len(inx)) - np.power(cen_temp, 2))]
+                inxList += inx
+        retained_set = np.delete(retained_set, inxList, axis=0)
+        retained_set_inx = np.delete(retained_set_inx, inxList)
 
+    # Step 12. Merge CS clusters that have a Mahalanobis Distance < 2√𝑑.
+    merge_list = list()
+    for i in range(len(compression_set_inx)):
+        for j in range(i+1, len(compression_set_inx)):
+            dis_times_1 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[i]
+            dis_times_2 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[j]
+            if np.argwhere(dis_times_1 > 2).size == 0 and np.argwhere(dis_times_2 > 2).size == 0:
+                merge_list.append([i,j])
+    merge_len = len(merge_list)
+    for i in range(merge_len):
+        for j in range(merge_len):
+            x = list(set(merge_list[i]+merge_list[j]))
+            y = len(merge_list[j])+len(merge_list[i])
+            if i == j:
+                continue
+            elif len(x) < y:
+                merge_list[i] = x
+                merge_list[j] = [-1]
+    merge_list = [i for i in merge_list if i != [-1]]
+
+
+    for m in merge_list:
+        inx_temp = list()
+        for i in m:
+            inx_temp += compression_set_inx[i]
+        compression_set_inx.append(inx_temp)
+        cs_N = np.r_[cs_N, np.array([[len(inx_temp)]])]
+        sq_temp = np.array([np.sum(cs_SUMSQ[m], axis=0)])
+        sum_temp = np.array([np.sum(cs_SUM[m], axis=0)])
+        cs_SUMSQ = np.r_[cs_SUMSQ, sq_temp]
+        cs_SUM = np.r_[cs_SUM, sum_temp]
+        cs_CEN = np.r_[cs_CEN, sum_temp / len(inx_temp)]
+        cs_SV = np.r_[cs_SV, np.sqrt((sq_temp / len(inx)) - np.power(sum_temp / len(inx_temp), 2))]
+    delete_line = sorted(sum(merge_list, []),key=int,reverse = True)
+    for l in delete_line:
+        del compression_set_inx[l]
+    cs_N = np.delete(cs_N, delete_line, axis=0)
+    cs_SUM = np.delete(cs_SUM, delete_line, axis=0)
+    cs_SUMSQ = np.delete(cs_SUMSQ, delete_line, axis=0)
+    cs_CEN = np.delete(cs_CEN, delete_line, axis=0)
+    cs_SV = np.delete(cs_SV, delete_line, axis=0)
+
+    # If this is the last run (after the last chunk of data), merge CS clusters with DS clusters that have a Mahalanobis Distance < 2√𝑑.
+    if end != n_data:
+        start = end
+        end = start + int(n_data * percentage) 
+    # else:
+    #     for i in compression_set_inx:
+    #         # Assign cs to ds
+    #         print (i)
+
+    metadata = (ds_count, len(compression_set_inx), cs_count, retained_set_inx.size)
+    print (metadata)
+    intermediate_res.append(metadata)
 # Test
 # testData = rawData.map(lambda x: (int(x[0]), int(x[1])))
 
