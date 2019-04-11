@@ -28,14 +28,14 @@ def getRS(arr):
         mask = (arr == k)
         arr_new = arr[mask]
         v = arr_new.size
-        if v == 1:
+        if v < 20:
             result[k] = v
     return result
 
 # -------- Initiate --------
 # Step 1. Load 20% of the data randomly.
 n_data = len(allData)
-percentage = 0.2
+percentage = 0.3
 big_cluster = N_CLUSTER * 10
 print(int(n_data * percentage))
 init_data = np.array(allData[:int(n_data * percentage)])
@@ -58,10 +58,11 @@ for k in init_key:
     mask = (filKmeans.labels_ == k)
     arr_temp = filKmeans.labels_[mask]
     v = arr_temp.size
-    if v == 1:
-        inx = np.argwhere(filKmeans.labels_ == k)[0][0]
-        retained_set.append(init_data[inx])
-        retained_set_inx.append(inx)
+    if v < 30:
+        inx = np.argwhere(filKmeans.labels_ == k)
+        for i in inx:
+            retained_set.append(init_data[i][0])
+            retained_set_inx.append(i[0])
 init_data = np.delete(init_data, retained_set_inx, axis=0)
 init_data_inx = np.delete(init_data_inx, retained_set_inx)
 retained_set = np.array(retained_set)
@@ -122,7 +123,9 @@ cs_N = np.array(cs_N)
 cs_CEN = np.array(cs_CEN)
 cs_SUM = cs_CEN * cs_N
 cs_SUMSQ = np.array(cs_SUMSQ)
-cs_SV = np.sqrt((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
+sv_temp = np.array((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
+sv_temp = np.where(sv_temp == 0, 0.00000001, sv_temp)
+cs_SV = np.sqrt(sv_temp)
 retained_set = np.delete(retained_set, inxList, axis=0)
 retained_set_inx = np.delete(retained_set_inx, inxList)
 s6End = time.time()
@@ -133,7 +136,7 @@ intermediate_res.append((ds_count, len(compression_set_inx), cs_count, retained_
 
 # -------- Computation Loop --------
 # Step 7. Load another 20% of the data randomly.
-percentage = 0.05
+percentage = 0.01
 start = int(n_data * percentage)
 end = start + int(n_data * percentage)
 while start < n_data:
@@ -148,14 +151,14 @@ while start < n_data:
         ds_times = np.abs(ds_CEN - data[i]) / ds_SV
         ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
         ds_times = ds_times[ds_min_line]
-        if np.argwhere(ds_times > 2.5).size == 0:
+        if np.argwhere(ds_times > 3).size == 0:
             discard_set[start + i] = ds_min_line
             ds_temp[ds_min_line].append(data[i])
             ds_count += 1
         else:
             # Step 9. For the new points that are not assigned to DS clusters, using the Mahalanobis Distance and assign the points to the nearest CS clusters if the distance is < 2√𝑑
-            if np.argwhere(cs_SV == 0).size >0:
-                print (cs_SV)
+            # if np.argwhere(cs_SV == 0).size >0:
+            #     print (cs_SV)
             cs_times = np.abs(cs_CEN - data[i]) / cs_SV
             cs_min_line = np.argmax(np.bincount(cs_times.argmin(axis=0)))
             cs_times = cs_times[cs_min_line]
@@ -184,7 +187,9 @@ while start < n_data:
     cs_N_temp = np.array([[len(i)] for i in cs_temp])
     cs_N += cs_N_temp
     cs_CEN = cs_SUM / cs_N
-    cs_SV = np.sqrt((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
+    sv_temp = np.array((cs_SUMSQ / cs_N) - np.power(cs_CEN, 2))
+    sv_temp = np.where(sv_temp == 0, 0.00000001, sv_temp)
+    cs_SV = np.sqrt(sv_temp)
 
     # Step 11. Run K-Means on the RS with a large K to generate CS (clusters with more than one points) and RS (clusters with only one point).
     if retained_set_inx.size != 0:
@@ -203,9 +208,7 @@ while start < n_data:
                 sum_temp = np.array([np.sum(retained_set[inx], axis=0)])
                 cen_temp = np.array(sum_temp/len(inx))
                 sv_temp = (sq_temp / len(inx)) - np.power(cen_temp, 2)
-                if np.argwhere(sv_temp < 0).size > 0:
-                    print (np.sum(retained_set[inx], axis=0)/len(inx))
-                    print (cen_temp)
+                sv_temp = np.where(sv_temp == 0, 0.00000001, sv_temp)
                 cs_SUMSQ = np.r_[cs_SUMSQ, sq_temp]
                 cs_CEN = np.r_[cs_CEN, cen_temp]
                 cs_SUM = np.r_[cs_SUM, sum_temp]
@@ -217,20 +220,20 @@ while start < n_data:
 
     # Step 12. Merge CS clusters that have a Mahalanobis Distance < 2√𝑑.
     merge_list = list()
-    # for i in range(len(compression_set_inx)):
-    #     for j in range(i+1, len(compression_set_inx)):
-    #         dis_times_1 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[i]
-    #         dis_times_2 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[j]
-    #         if np.argwhere(dis_times_1 > 2).size == 0 and np.argwhere(dis_times_2 > 2).size == 0:
-    #             merge_list.append([i,j])
-    for i in range(len(compression_set_inx)-1):
+    for i in range(len(compression_set_inx)):
         for j in range(i+1, len(compression_set_inx)):
-            N_temp = cs_N[i] + cs_N[j]
-            SUM_temp = cs_SUM[i] + cs_SUM[j]
-            SUMSQ_temp = cs_SUMSQ[i] + cs_SUMSQ[j]
-            SV_temp = np.sqrt((SUMSQ_temp / N_temp) - np.power((SUM_temp / N_temp), 2))
-            if np.argwhere(SV_temp > 5).size == 0:
+            dis_times_1 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[i]
+            dis_times_2 = np.abs(cs_CEN[i] - cs_CEN[j]) / cs_SV[j]
+            if np.argwhere(dis_times_1 > 3).size == 0 or np.argwhere(dis_times_2 > 3).size == 0:
                 merge_list.append([i,j])
+    # for i in range(len(compression_set_inx)-1):
+    #     for j in range(i+1, len(compression_set_inx)):
+    #         N_temp = cs_N[i] + cs_N[j]
+    #         SUM_temp = cs_SUM[i] + cs_SUM[j]
+    #         SUMSQ_temp = cs_SUMSQ[i] + cs_SUMSQ[j]
+    #         SV_temp = np.sqrt((SUMSQ_temp / N_temp) - np.power((SUM_temp / N_temp), 2))
+    #         if np.argwhere(SV_temp > 20).size == 0:
+    #             merge_list.append([i,j])
     merge_len = len(merge_list)
     if merge_len != 0:
         for i in range(merge_len):
@@ -273,7 +276,7 @@ while start < n_data:
             ds_times = np.abs(ds_CEN - cs_CEN[i]) / ds_SV
             ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
             ds_times = ds_times[ds_min_line]
-            if np.argwhere(ds_times > 2).size == 0:
+            if np.argwhere(ds_times > 3).size == 0:
                 inx = compression_set_inx[i]
                 discard_set[inx] = ds_min_line
                 ds_count += len(compression_set_inx[i])
