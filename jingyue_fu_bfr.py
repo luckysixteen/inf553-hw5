@@ -20,34 +20,20 @@ rawData = rawData.map(lambda x: x.decode().split(','))
 allData = rawData.map(lambda x: list(map(eval,x[2:]))).collect()
 intermediate_res = list()
 
-def getRS(arr):
-    arr = np.array(arr)
-    key = np.unique(arr)
-    result = {}
-    for k in key:
-        mask = (arr == k)
-        arr_new = arr[mask]
-        v = arr_new.size
-        if v < 20:
-            result[k] = v
-    return result
-
 # -------- Initiate --------
 # Step 1. Load 20% of the data randomly.
 n_data = len(allData)
 percentage = 0.3
 big_cluster = N_CLUSTER * 10
-print(int(n_data * percentage))
 init_data = np.array(allData[:int(n_data * percentage)])
 init_data_inx = np.arange(int(n_data * percentage))
 
 # Step 2. Run K-Means (e.g., from sklearn) with a large K (e.g., 10 times of the given cluster numbers) on the data in memory using the Euclidean distance as the similarity measurement.
 s2Start = time.time()
 filKmeans = KMeans(n_clusters=big_cluster, random_state=0).fit(init_data)
-print("outliner number: " + str(len(getRS(filKmeans.labels_))))
 s2End = time.time()
-print("percentage: "+str(percentage)+", cluster: "+str(big_cluster))
-print("step2: %f sec" % (s2End - s2Start))
+# print("percentage: "+str(percentage)+", cluster: "+str(big_cluster))
+# print("step2: %f sec" % (s2End - s2Start))
 
 # Step 3. In the K-Means result from Step 2, move all the clusters with only one point to RS (outliers).
 s3Start = time.time()
@@ -68,13 +54,13 @@ init_data_inx = np.delete(init_data_inx, retained_set_inx)
 retained_set = np.array(retained_set)
 retained_set_inx = np.array([i for i in retained_set_inx])
 s3End = time.time()
-print("step3: %f sec" % (s3End - s3Start))
+# print("step3: %f sec" % (s3End - s3Start))
 
 # Step 4. Run K-Means again to cluster the rest of the data point with K = the number of input clusters.
 s4Start = time.time()
 initKmeans = KMeans(n_clusters = N_CLUSTER, random_state=0).fit(init_data)
 s4End = time.time()
-print("step4: %f sec" % (s4End - s4Start))
+# print("step4: %f sec" % (s4End - s4Start))
 
 # Step 5. Use the K-Means result from Step 4 to generate the DS clusters (i.e., discard their points and generate statistics).
 s5Start = time.time()
@@ -96,13 +82,12 @@ ds_SUM = ds_CEN * ds_N
 ds_SUMSQ = np.array(ds_SUMSQ)
 ds_SV = np.sqrt((ds_SUMSQ / ds_N) - np.power(ds_CEN,2))
 s5End = time.time()
-print("step5: %f sec" % (s5End - s5Start))
+# print("step5: %f sec" % (s5End - s5Start))
 
 # Step 6. Run K-Means on the points in the RS with a large K to generate CS (clusters with more than one points) and RS (clusters with only one point).
 s6Start = time.time()
 temp_cluster = int(retained_set_inx.size * 0.7)
 initKmeans = KMeans(n_clusters=temp_cluster, random_state=0).fit(retained_set)
-print("outliner number: " + str(len(getRS(initKmeans.labels_))))
 init_key = np.unique(initKmeans.labels_)
 compression_set_inx = list()
 inxList = list()
@@ -129,7 +114,7 @@ cs_SV = np.sqrt(sv_temp)
 retained_set = np.delete(retained_set, inxList, axis=0)
 retained_set_inx = np.delete(retained_set_inx, inxList)
 s6End = time.time()
-print("step6: %f sec" % (s6End - s6Start))
+# print("step6: %f sec" % (s6End - s6Start))
 
 intermediate_res.append((ds_count, len(compression_set_inx), cs_count, retained_set_inx.size))
 
@@ -151,7 +136,7 @@ while start < n_data:
         ds_times = np.abs(ds_CEN - data[i]) / ds_SV
         ds_min_line = np.argmax(np.bincount(ds_times.argmin(axis=0)))
         ds_times = ds_times[ds_min_line]
-        if np.argwhere(ds_times > 3).size == 0:
+        if np.argwhere(ds_times > 2.8).size == 0:
             discard_set[start + i] = ds_min_line
             ds_temp[ds_min_line].append(data[i])
             ds_count += 1
@@ -289,12 +274,12 @@ while start < n_data:
     start = end
     end = start + int(n_data * percentage)
     metadata = (ds_count, len(compression_set_inx), cs_count, retained_set_inx.size)
-    print (metadata)
+    # print (metadata)
     intermediate_res.append(metadata)
 # Test
-testData = rawData.map(lambda x: int(x[1])).collect()
-score = normalized_mutual_info_score(testData, discard_set)
-print (score)
+# testData = rawData.map(lambda x: int(x[1])).collect()
+# score = normalized_mutual_info_score(testData, discard_set)
+# print (score)
 
 # Print
 fileOfOutput = open(OUTPUT, 'w')
@@ -310,7 +295,7 @@ fileOfOutput.write(outputStr)
 fileOfOutput.close()
 
 timeEnd = time.time()
-print("Duration: %f sec" % (timeEnd - timeStart))
+# print("Duration: %f sec" % (timeEnd - timeStart))
 
 # bin/spark-submit \
 # --conf "spark.driver.extraJavaOptions=-Dlog4j.configuration=file:conf/log4j.xml" \
